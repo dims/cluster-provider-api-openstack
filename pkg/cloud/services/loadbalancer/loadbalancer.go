@@ -250,11 +250,17 @@ func (s *Service) ReconcileLoadBalancerMember(openStackCluster *infrav1.OpenStac
 	return nil
 }
 
+// DeleteLoadBalancer deletes a load balancer identified by its name and all child objects (cascade).
 func (s *Service) DeleteLoadBalancer(openStackCluster *infrav1.OpenStackCluster, loadBalancerName string) error {
 	lb, err := checkIfLbExists(s.loadbalancerClient, loadBalancerName)
 	if err != nil {
 		return err
 	}
+	return s.deleteLoadBalancer(openStackCluster, lb)
+}
+
+// deleteLoadBalancer deletes the load balancer and all child objects (cascade).
+func (s *Service) deleteLoadBalancer(openStackCluster *infrav1.OpenStackCluster, lb *loadbalancers.LoadBalancer) error {
 	if lb == nil {
 		// nothing to do
 		return nil
@@ -263,8 +269,8 @@ func (s *Service) DeleteLoadBalancer(openStackCluster *infrav1.OpenStackCluster,
 	deleteOpts := loadbalancers.DeleteOpts{
 		Cascade: true,
 	}
-	s.logger.Info("Deleting load balancer", "name", loadBalancerName, "cascade", deleteOpts.Cascade)
-	err = loadbalancers.Delete(s.loadbalancerClient, lb.ID, deleteOpts).ExtractErr()
+	s.logger.Info("Deleting load balancer", "id", lb.ID, "name", lb.Name, "cascade", deleteOpts.Cascade)
+	err := loadbalancers.Delete(s.loadbalancerClient, lb.ID, deleteOpts).ExtractErr()
 	if err != nil {
 		record.Warnf(openStackCluster, "FailedDeleteLoadBalancer", "Failed to delete load balancer %s with id %s: %v", lb.Name, lb.ID, err)
 		return err
@@ -319,6 +325,28 @@ func (s *Service) DeleteLoadBalancerMember(openStackCluster *infrav1.OpenStackCl
 			if err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// DeleteOrphanedLoadBalancers deletes all remaining load balancers and all child objects within an OpenStack project.
+// Orphaned load balancers are expected when deleting the cluster because the CCM manages additional load balancers.
+func (s *Service) DeleteOrphanedLoadBalancers(openStackCluster *infrav1.OpenStackCluster) error {
+	lbList, err := loadbalancers.List(s.loadbalancerClient, loadbalancers.ListOpts{ProjectID: s.projectID}).AllPages()
+	if err != nil {
+		return fmt.Errorf("error listing loadbalancers: %v", err)
+	}
+
+	orphanedLoadbalancers, err := loadbalancers.ExtractLoadBalancers(lbList)
+	if err != nil {
+		return fmt.Errorf("error extracting loadbalancers: %v", err)
+	}
+
+	for _, lb := range orphanedLoadbalancers {
+		orphanedLoadbalancer := lb
+		if err = s.deleteLoadBalancer(openStackCluster, &orphanedLoadbalancer); err != nil {
+			return err
 		}
 	}
 	return nil

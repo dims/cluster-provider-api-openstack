@@ -25,10 +25,12 @@ import (
 	"github.com/gophercloud/utils/openstack/clientconfig"
 
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/networking"
+	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/provider"
 )
 
 // Service interfaces with the OpenStack Neutron LBaaS v2 API.
 type Service struct {
+	projectID          string
 	loadbalancerClient *gophercloud.ServiceClient
 	networkingService  *networking.Service
 	logger             logr.Logger
@@ -48,7 +50,19 @@ func NewService(client *gophercloud.ProviderClient, clientOpts *clientconfig.Cli
 		return nil, fmt.Errorf("failed to create networking service: %v", err)
 	}
 
+	var projectID string
+	if clientOpts.AuthInfo != nil {
+		projectID = clientOpts.AuthInfo.ProjectID
+		if projectID == "" && clientOpts.AuthInfo.ProjectName != "" {
+			projectID, err = provider.GetProjectID(client, clientOpts.AuthInfo.ProjectName)
+			if err != nil {
+				return nil, fmt.Errorf("error retrieveing project id: %v", err)
+			}
+		}
+	}
+
 	return &Service{
+		projectID:          projectID,
 		loadbalancerClient: loadbalancerClient,
 		networkingService:  networkingService,
 		logger:             logger,
