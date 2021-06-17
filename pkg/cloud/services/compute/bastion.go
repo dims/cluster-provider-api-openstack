@@ -58,8 +58,8 @@ func (s *Service) CreateBastion(openStackCluster *infrav1.OpenStackCluster, clus
 		}}
 	}
 	input.Networks = &nets
-
-	out, err := s.createInstance(openStackCluster, clusterName, input)
+	networkLevelPortSecurityDisabled := openStackCluster.Spec.DisablePortSecurity
+	out, err := s.createInstance(openStackCluster, clusterName, input, networkLevelPortSecurityDisabled)
 	if err != nil {
 		return nil, err
 	}

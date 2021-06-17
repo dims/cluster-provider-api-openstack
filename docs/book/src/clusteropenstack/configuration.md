@@ -231,6 +231,13 @@ spec:
 
 Any such ports are created in addition to ports used for connections to networks or subnets.
 
+If PortSecurity disabled for all ports either by setting `OpenStackCluster.spec.disablePortSecurity: true` or for each port individually, `managedSecurityGroups: false` is the only valid option. The following is not a valid coonfiguration and is not supported.
+
+```
+OpenStackCluster.spec.disablePortSecurity: true
+OpenStackCluster.spec.managedSecurityGroups: true
+```
+
 ## Tagging
 
 If your cluster supports tagging servers, you have the ability to tag all resources created by the cluster in the `cluster.yaml` file. Here is an example how to configure tagging:

@@ -130,7 +130,8 @@ type PortOpts struct {
 	ProjectID           string        `json:"projectId,omitempty"`
 	SecurityGroups      *[]string     `json:"securityGroups,omitempty"`
 	AllowedAddressPairs []AddressPair `json:"allowedAddressPairs,omitempty"`
-
+	// Disables PortSecurity at the port level. If not provided, it inherits the corresponding network level value
+	DisablePortSecurity *bool `json:"disablePortSecurity,omitempty"`
 	// The ID of the host where the port is allocated
 	HostID string `json:"hostId,omitempty"`
 
