@@ -3,6 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Required configuration](#required-configuration)
+  - [OpenStack Version](#openstack-version)
   - [Operating system image](#operating-system-image)
   - [SSH key pair](#ssh-key-pair)
   - [OpenStack credential](#openstack-credential)
@@ -55,6 +56,10 @@ clusterctl config cluster capi-quickstart \
   --worker-machine-count=1 \
   > capi-quickstart.yaml
 ```
+
+## OpenStack version
+
+We currently require at least OpenStack Pike.
 
 ## Operating system image
 
@@ -233,7 +238,7 @@ Any such ports are created in addition to ports used for connections to networks
 
 ## Tagging
 
-If your cluster supports tagging servers, you have the ability to tag all resources created by the cluster in the `cluster.yaml` file. Here is an example how to configure tagging:
+You have the ability to tag all resources created by the cluster in the `cluster.yaml` file. Here is an example how to configure tagging:
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
@@ -261,7 +266,7 @@ spec:
 
 ## Metadata
 
-Instead of tagging, you also have the option to add metadata to instances. This functionality should be more commonly available than tagging. Here is a usage example:
+You also have the option to add metadata to instances. Here is a usage example:
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
