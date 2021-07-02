@@ -64,6 +64,7 @@ type OpenStackMachineReconciler struct {
 
 const (
 	waitForClusterInfrastructureReadyDuration = 15 * time.Second
+	waitForInstanceBecomeActiveToReconcile    = 60 * time.Second
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=openstackmachines,verbs=get;list;watch;create;update;patch;delete
@@ -334,11 +335,16 @@ func (r *OpenStackMachineReconciler) reconcileNormal(ctx context.Context, logger
 	case infrav1.InstanceStateActive:
 		logger.Info("Machine instance is ACTIVE", "instance-id", instance.ID)
 		openStackMachine.Status.Ready = true
-	case infrav1.InstanceStateBuilding:
-		logger.Info("Machine instance is BUILDING", "instance-id", instance.ID)
-	default:
+	case infrav1.InstanceStateBuild:
+		logger.Info("Machine instance is BUILD", "instance-id", instance.ID)
+	case infrav1.InstanceStateError:
+		// Error is unexpected, thus we report error and never retry
 		handleUpdateMachineError(logger, openStackMachine, errors.Errorf("OpenStack instance state %q is unexpected", instance.State))
 		return ctrl.Result{}, nil
+	default:
+		// The other state is normal (for example, migrating) but we don't want to proceed until it's ACTIVE
+		// due to potential conflict or unexpected actions
+		return ctrl.Result{RequeueAfter: waitForInstanceBecomeActiveToReconcile}, nil
 	}
 
 	if openStackCluster.Spec.ManagedAPIServerLoadBalancer {

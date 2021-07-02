@@ -227,7 +227,7 @@ func (r SecurityGroupRule) Equal(x SecurityGroupRule) bool {
 type InstanceState string
 
 var (
-	InstanceStateBuilding = InstanceState("BUILDING")
+	InstanceStateBuild = InstanceState("BUILD")
 
 	InstanceStateActive = InstanceState("ACTIVE")
 
