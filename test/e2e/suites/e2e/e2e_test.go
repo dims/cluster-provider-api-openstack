@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/trunks"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/ports"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -165,6 +166,53 @@ var _ = Describe("e2e tests", func() {
 
 			port := (*plist)[0]
 			Expect(port.Description).To(Equal("primary"))
+		})
+		It("Should create trunk enabled port(s)", func() {
+			shared.Byf("Creating a cluster")
+			clusterName := fmt.Sprintf("cluster-%s", namespace.Name)
+			configCluster := defaultConfigCluster(clusterName, namespace.Name)
+			configCluster.ControlPlaneMachineCount = pointer.Int64Ptr(1)
+			configCluster.WorkerMachineCount = pointer.Int64Ptr(1)
+			configCluster.Flavor = shared.FlavorDefault
+			_ = createCluster(ctx, configCluster, specName)
+
+			shared.Byf("Creating MachineDeployment with trunk enabled port")
+			md4Name := clusterName + "-md-4"
+			iTrue := true
+			customPortOptions := &[]infrav1.PortOpts{
+				{
+					Description: "trunk-port1",
+					Trunk:       &iTrue,
+				},
+			}
+			// Note that as the bootstrap config does not have cloud.conf, the node will not be added to the cluster.
+			// We still expect the port for the machine to be created.
+			framework.CreateMachineDeployment(ctx, framework.CreateMachineDeploymentInput{
+				Creator:                 e2eCtx.Environment.BootstrapClusterProxy.GetClient(),
+				MachineDeployment:       makeMachineDeployment(namespace.Name, md4Name, clusterName, "", 2), // linter issue with value 1
+				BootstrapConfigTemplate: makeJoinBootstrapConfigTemplate(namespace.Name, md4Name),
+				InfraMachineTemplate:    makeOpenStackMachineTemplateWithPortOptions(namespace.Name, clusterName, md4Name, customPortOptions),
+			})
+
+			shared.Byf("Waiting for trunk port to be created")
+			var plist *[]ports.Port
+			var tlist *[]trunks.Trunk
+			var err error
+			Eventually(func() int {
+				plist, err = shared.DumpOpenStackPorts(e2eCtx, ports.ListOpts{Description: "trunk-port1"})
+				Expect(err).To(BeNil())
+				return len(*plist)
+			}, e2eCtx.E2EConfig.GetIntervals(specName, "wait-worker-nodes")...).Should(Equal(1))
+			port := (*plist)[0]
+			Expect(port.Description).To(Equal("trunk-port1"))
+
+			Eventually(func() int {
+				tlist, err = shared.DumpOpenStackTrunks(e2eCtx, ports.ListOpts{ID: port.ID})
+				Expect(err).To(BeNil())
+				return len(*tlist)
+			}, e2eCtx.E2EConfig.GetIntervals(specName, "wait-worker-nodes")...).Should(Equal(1))
+			trunk := (*tlist)[0]
+			Expect(trunk.AdminStateUp).To(Equal(true))
 		})
 		It("It should be creatable and deletable", func() {
 			shared.Byf("Creating a cluster")
