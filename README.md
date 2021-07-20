@@ -100,6 +100,11 @@ Reference images can be found in [kubernetes-sigs/image-builder](https://github.
  prerequisites in the image, you can always deploy and execute some custom scripts 
  through the [KubeadmConfig](https://github.com/kubernetes-sigs/cluster-api-bootstrap-provider-kubeadm).  
 
+Images provided by the community for the community built
+with [kubernetes-sigs/image-builder](https://github.com/kubernetes-sigs/image-builder/tree/master/images/capi)
+based on Ubuntu are provided via [23technologies/kubernetes-capi-images](https://github.com/23technologies/kubernetes-capi-images).
+URLs to download the images can be found there in the [README](https://github.com/23technologies/kubernetes-capi-images#openstack) file.
+
 ------
 
 ## Documentation
