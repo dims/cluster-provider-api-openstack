@@ -126,6 +126,28 @@ var _ = Describe("e2e tests", func() {
 			waitForDaemonSetRunning(ctx, workloadCluster.GetClient(), "kube-system", "openstack-cloud-controller-manager")
 
 			waitForNodesReadyWithoutCCMTaint(ctx, workloadCluster.GetClient(), 2)
+
+
+			workloadCluster := e2eCtx.Environment.BootstrapClusterProxy.GetWorkloadCluster(ctx, namespace.Name, clusterName)
+
+                        framework.CreateNamespaceAndWatchEvents(ctx, framework.CreateNamespaceAndWatchEventsInput{
+                                Creator:   workloadCluster.GetClient(),
+                                ClientSet: workloadCluster.GetClientSet(),
+                                Name:      namespace.Name,
+                                LogFolder: filepath.Join(e2eCtx.Settings.ArtifactFolder, "clusters", workloadCluster.GetName()),
+                        })
+
+                        shared.Byf("Ensuring DaemonSet %s is running", clusterName)
+                        shared.Byf("Ensuring DaemonSet %s is running", namespace.Name)
+                        By("Initializing the workload cluster")
+                        clusterctl.InitManagementClusterAndWatchControllerLogs(ctx, clusterctl.InitManagementClusterAndWatchControllerLogsInput{
+                                ClusterProxy:            workloadCluster,
+                                ClusterctlConfigPath:    e2eCtx.Environment.ClusterctlConfigPath,
+                                InfrastructureProviders: e2eCtx.E2EConfig.InfrastructureProviders(),
+                                LogFolder:               filepath.Join(e2eCtx.Settings.ArtifactFolder, "clusters", workloadCluster.GetName()),
+                        }, e2eCtx.E2EConfig.GetIntervals(workloadCluster.GetName(), "wait-controllers")...)
+
+                        By("Ensure API servers are stable before doing move")
 		})
 	})
 
@@ -188,6 +210,47 @@ var _ = Describe("e2e tests", func() {
 			})
 			Expect(len(workerMachines)).To(Equal(1))
 			Expect(len(controlPlaneMachines)).To(Equal(1))
+
+			workloadCluster := e2eCtx.Environment.BootstrapClusterProxy.GetWorkloadCluster(ctx, namespace.Name, clusterName)
+
+			framework.CreateNamespaceAndWatchEvents(ctx, framework.CreateNamespaceAndWatchEventsInput{
+				Creator:   workloadCluster.GetClient(),
+				ClientSet: workloadCluster.GetClientSet(),
+				Name:      namespace.Name,
+				LogFolder: filepath.Join(e2eCtx.Settings.ArtifactFolder, "clusters", workloadCluster.GetName()),
+			})
+
+			shared.Byf("Ensuring DaemonSet %s is running", clusterName)
+			shared.Byf("Ensuring DaemonSet %s is running", namespace.Name)
+			By("Initializing the workload cluster")
+			clusterctl.InitManagementClusterAndWatchControllerLogs(ctx, clusterctl.InitManagementClusterAndWatchControllerLogsInput{
+				ClusterProxy:            workloadCluster,
+				ClusterctlConfigPath:    e2eCtx.Environment.ClusterctlConfigPath,
+				InfrastructureProviders: e2eCtx.E2EConfig.InfrastructureProviders(),
+				LogFolder:               filepath.Join(e2eCtx.Settings.ArtifactFolder, "clusters", workloadCluster.GetName()),
+			}, e2eCtx.E2EConfig.GetIntervals(workloadCluster.GetName(), "wait-controllers")...)
+
+			By("Ensure API servers are stable before doing move")
+			// Nb. This check was introduced to prevent doing move to self-hosted in an aggressive way and thus avoid flakes.
+			// More specifically, we were observing the test failing to get objects from the API server during move, so we
+			// are now testing the API servers are stable before starting move.
+			Consistently(func() error {
+				kubeSystem := &corev1.Namespace{}
+				return e2eCtx.Environment.BootstrapClusterProxy.GetClient().Get(ctx, crclient.ObjectKey{Name: "kube-system"}, kubeSystem)
+			}, "5s", "100ms").Should(BeNil(), "Failed to assert bootstrap API server stability")
+			Consistently(func() error {
+				kubeSystem := &corev1.Namespace{}
+				return e2eCtx.Environment.BootstrapClusterProxy.GetClient().Get(ctx, crclient.ObjectKey{Name: "kube-system"}, kubeSystem)
+			}, "5s", "100ms").Should(BeNil(), "Failed to assert self-hosted API server stability")
+
+			By("Moving the cluster to self hosted")
+			clusterctl.Move(ctx, clusterctl.MoveInput{
+				LogFolder:            filepath.Join(e2eCtx.Settings.ArtifactFolder, "clusters", e2eCtx.Environment.BootstrapClusterProxy.GetName()),
+				ClusterctlConfigPath: e2eCtx.Environment.ClusterctlConfigPath,
+				FromKubeconfigPath:   e2eCtx.Environment.BootstrapClusterProxy.GetKubeconfigPath(),
+				Namespace:            namespace.Name,
+				ToKubeconfigPath:     workloadCluster.GetKubeconfigPath(),
+			})
 		})
 	})
 
