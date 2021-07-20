@@ -106,7 +106,13 @@ $(ARTIFACTS):
 
 .PHONY: test
 test: ## Run tests
-	go test -v ./...
+	source ./scripts/fetch_ext_bins.sh; fetch_tools; setup_envs; go test ./...
+
+.PHONY: test-cover
+test-cover: ## Run tests with code coverage and code generate  reports
+	source ./scripts/fetch_ext_bins.sh; fetch_tools; setup_envs; mkdir -p /tmp/out; go test -v -coverprofile=/tmp/out/coverage.out ./... $(TEST_ARGS)
+	go tool cover -func=out/coverage.out -o out/coverage.txt
+	go tool cover -html=out/coverage.out -o out/coverage.html
 
 # Can be run manually, e.g. via:
 # export OPENSTACK_CLOUD_YAML_FILE="$(pwd)/clouds.yaml"
