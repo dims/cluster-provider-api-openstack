@@ -121,6 +121,11 @@ var backoff = wait.Backoff{
 func (s *Service) AssociateFloatingIP(openStackCluster *infrav1.OpenStackCluster, fp *floatingips.FloatingIP, portID string) error {
 	s.logger.Info("Associating floating IP", "id", fp.ID, "ip", fp.FloatingIP)
 
+	if fp.PortID == portID {
+		record.Eventf(openStackCluster, "SuccessfulAssociateFloatingIP", "Floating IP %s already associated with port %s", fp.FloatingIP, portID)
+		return nil
+	}
+
 	fpUpdateOpts := &floatingips.UpdateOpts{
 		PortID: &portID,
 	}
