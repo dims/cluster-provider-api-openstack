@@ -35,6 +35,7 @@ import (
 	netext "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/attributestags"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/portsbinding"
+	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/portsecurity"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/trunks"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/networks"
@@ -64,6 +65,11 @@ const (
 
 	timeoutInstanceDelete = 5 * time.Minute
 )
+
+var portWithPortSecurityExtensions struct {
+	ports.Port
+	portsecurity.PortSecurityExt
+}
 
 func (s *Service) CreateInstance(openStackCluster *infrav1.OpenStackCluster, machine *clusterv1.Machine, openStackMachine *infrav1.OpenStackMachine, clusterName string, userData string) (instance *infrav1.Instance, err error) {
 	if openStackMachine == nil {
@@ -131,8 +137,8 @@ func (s *Service) CreateInstance(openStackCluster *infrav1.OpenStackCluster, mac
 		return nil, err
 	}
 	input.Networks = nets
-
-	out, err := s.createInstance(openStackMachine, clusterName, input)
+	networkLevelPortSecurityDisabled := openStackCluster.Spec.DisablePortSecurity
+	out, err := s.createInstance(openStackMachine, clusterName, input, networkLevelPortSecurityDisabled)
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +149,8 @@ func (s *Service) CreateInstance(openStackCluster *infrav1.OpenStackCluster, mac
 // If no networks or ports are in the spec, returns a single network item for a network connection to the default cluster network.
 func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, openStackMachine *infrav1.OpenStackMachine) (*[]infrav1.Network, error) {
 	var nets []infrav1.Network
+	// network level DisablePortSecurity
+	networkDisablePortSecurity := openStackCluster.Spec.DisablePortSecurity
 	if len(openStackMachine.Spec.Networks) > 0 {
 		var err error
 		nets, err = s.getServerNetworks(openStackMachine.Spec.Networks)
@@ -151,11 +159,16 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 		}
 	}
 	for i, port := range openStackMachine.Spec.Ports {
+		pOpts := &openStackMachine.Spec.Ports[i]
+		// Port inheriting network level PortSecurity policy
+		if pOpts.DisablePortSecurity == nil || networkDisablePortSecurity {
+			pOpts.DisablePortSecurity = &networkDisablePortSecurity
+		}
 		if port.NetworkID != "" {
 			nets = append(nets, infrav1.Network{
 				ID:       port.NetworkID,
 				Subnet:   &infrav1.Subnet{},
-				PortOpts: &openStackMachine.Spec.Ports[i],
+				PortOpts: pOpts,
 			})
 		} else {
 			nets = append(nets, infrav1.Network{
@@ -163,7 +176,7 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 				Subnet: &infrav1.Subnet{
 					ID: openStackCluster.Status.Network.Subnet.ID,
 				},
-				PortOpts: &openStackMachine.Spec.Ports[i],
+				PortOpts: pOpts,
 			})
 		}
 	}
@@ -174,12 +187,15 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 			Subnet: &infrav1.Subnet{
 				ID: openStackCluster.Status.Network.Subnet.ID,
 			},
+			PortOpts: &infrav1.PortOpts{
+				DisablePortSecurity: &networkDisablePortSecurity,
+			},
 		}}
 	}
 	return &nets, nil
 }
 
-func (s *Service) createInstance(eventObject runtime.Object, clusterName string, instance *infrav1.Instance) (*infrav1.Instance, error) {
+func (s *Service) createInstance(eventObject runtime.Object, clusterName string, instance *infrav1.Instance, networkLevelPortSecurityDisabled bool) (*infrav1.Instance, error) {
 	accessIPv4 := ""
 	portList := []servers.Network{}
 
@@ -187,7 +203,10 @@ func (s *Service) createInstance(eventObject runtime.Object, clusterName string,
 		if network.ID == "" {
 			return nil, fmt.Errorf("no network was found or provided. Please check your machine configuration and try again")
 		}
-
+		// Port inheriting network level PortSecurity policy
+		if network.PortOpts.DisablePortSecurity == nil || networkLevelPortSecurityDisabled {
+			network.PortOpts.DisablePortSecurity = &networkLevelPortSecurityDisabled
+		}
 		portName := getPortName(instance.Name, network.PortOpts, i)
 		port, err := s.getOrCreatePort(eventObject, clusterName, portName, network, instance.SecurityGroups)
 		if err != nil {
@@ -474,13 +493,18 @@ func (s *Service) getOrCreatePort(eventObject runtime.Object, clusterName string
 		AllowedAddressPairs: []ports.AddressPair{},
 	}
 
-	for _, ap := range portOpts.AllowedAddressPairs {
-		createOpts.AllowedAddressPairs = append(createOpts.AllowedAddressPairs, ports.AddressPair{
-			IPAddress:  ap.IPAddress,
-			MACAddress: ap.MACAddress,
-		})
+	if !*portOpts.DisablePortSecurity {
+		for _, ap := range portOpts.AllowedAddressPairs {
+			createOpts.AllowedAddressPairs = append(createOpts.AllowedAddressPairs, ports.AddressPair{
+				IPAddress:  ap.IPAddress,
+				MACAddress: ap.MACAddress,
+			})
+		}
 	}
 
+	if *portOpts.DisablePortSecurity {
+		createOpts.SecurityGroups = &[]string{}
+	}
 	fixedIPs := make([]ports.IP, 0, len(portOpts.FixedIPs)+1)
 	for _, fixedIP := range portOpts.FixedIPs {
 		fixedIPs = append(fixedIPs, ports.IP{
@@ -508,6 +532,24 @@ func (s *Service) getOrCreatePort(eventObject runtime.Object, clusterName string
 	}
 
 	record.Eventf(eventObject, "SuccessfulCreatePort", "Created port %s with id %s", port.Name, port.ID)
+	if *portOpts.DisablePortSecurity {
+		err = ports.Get(s.networkClient, port.ID).ExtractInto(&portWithPortSecurityExtensions)
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve por %s: %v", port.Name, err)
+		}
+		if portWithPortSecurityExtensions.PortSecurityEnabled {
+			iFalse := false
+			portUpdateOpts := ports.UpdateOpts{}
+			updateOpts := portsecurity.PortUpdateOptsExt{
+				UpdateOptsBuilder:   portUpdateOpts,
+				PortSecurityEnabled: &iFalse,
+			}
+			err := ports.Update(s.networkClient, port.ID, updateOpts).ExtractInto(&portWithPortSecurityExtensions)
+			if err != nil {
+				return nil, fmt.Errorf("unable to disable portSecurity at port level: %v", err)
+			}
+		}
+	}
 	return port, nil
 }
 
