@@ -143,6 +143,7 @@ func (s *Service) CreateInstance(openStackCluster *infrav1.OpenStackCluster, mac
 // If no networks or ports are in the spec, returns a single network item for a network connection to the default cluster network.
 func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, openStackMachine *infrav1.OpenStackMachine) (*[]infrav1.Network, error) {
 	var nets []infrav1.Network
+	nTrunk := openStackMachine.Spec.Trunk
 	if len(openStackMachine.Spec.Networks) > 0 {
 		var err error
 		nets, err = s.getServerNetworks(openStackMachine.Spec.Networks)
@@ -151,11 +152,16 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 		}
 	}
 	for i, port := range openStackMachine.Spec.Ports {
+		pOpts := &openStackMachine.Spec.Ports[i]
+		// No Trunk field specified for the port, inherit openStackMachine.Spec.Trunk.
+		if pOpts.Trunk == nil {
+			pOpts.Trunk = &nTrunk
+		}
 		if port.NetworkID != "" {
 			nets = append(nets, infrav1.Network{
 				ID:       port.NetworkID,
 				Subnet:   &infrav1.Subnet{},
-				PortOpts: &openStackMachine.Spec.Ports[i],
+				PortOpts: pOpts,
 			})
 		} else {
 			nets = append(nets, infrav1.Network{
@@ -163,7 +169,7 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 				Subnet: &infrav1.Subnet{
 					ID: openStackCluster.Status.Network.Subnet.ID,
 				},
-				PortOpts: &openStackMachine.Spec.Ports[i],
+				PortOpts: pOpts,
 			})
 		}
 	}
@@ -173,6 +179,9 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 			ID: openStackCluster.Status.Network.ID,
 			Subnet: &infrav1.Subnet{
 				ID: openStackCluster.Status.Network.Subnet.ID,
+			},
+			PortOpts: &infrav1.PortOpts{
+				Trunk: &nTrunk,
 			},
 		}}
 	}
@@ -188,21 +197,14 @@ func (s *Service) createInstance(eventObject runtime.Object, clusterName string,
 			return nil, fmt.Errorf("no network was found or provided. Please check your machine configuration and try again")
 		}
 
+		iTags := []string{}
+		if len(instance.Tags) > 0 {
+			iTags = instance.Tags
+		}
 		portName := getPortName(instance.Name, network.PortOpts, i)
-		port, err := s.getOrCreatePort(eventObject, clusterName, portName, network, instance.SecurityGroups)
+		port, err := s.getOrCreatePort(eventObject, clusterName, portName, network, instance.SecurityGroups, iTags)
 		if err != nil {
 			return nil, err
-		}
-
-		if instance.Trunk {
-			trunk, err := s.getOrCreateTrunk(eventObject, clusterName, instance.Name, port.ID)
-			if err != nil {
-				return nil, err
-			}
-
-			if err = s.replaceAllAttributesTags(eventObject, trunk.ID, instance.Tags); err != nil {
-				return nil, err
-			}
 		}
 
 		for _, fip := range port.FixedIPs {
@@ -423,7 +425,7 @@ func (s *Service) getServerNetworks(networkParams []infrav1.NetworkParam) ([]inf
 	return nets, nil
 }
 
-func (s *Service) getOrCreatePort(eventObject runtime.Object, clusterName string, portName string, net infrav1.Network, instanceSecurityGroups *[]string) (*ports.Port, error) {
+func (s *Service) getOrCreatePort(eventObject runtime.Object, clusterName string, portName string, net infrav1.Network, instanceSecurityGroups *[]string, tags []string) (*ports.Port, error) {
 	mc := metrics.NewMetricPrometheusContext("port", "list")
 	allPages, err := ports.List(s.networkClient, ports.ListOpts{
 		Name:      portName,
@@ -508,10 +510,22 @@ func (s *Service) getOrCreatePort(eventObject runtime.Object, clusterName string
 	}
 
 	record.Eventf(eventObject, "SuccessfulCreatePort", "Created port %s with id %s", port.Name, port.ID)
+
+	if *portOpts.Trunk {
+		trunkDescription := names.GetDescription(clusterName)
+		trunk, err := s.getOrCreateTrunk(eventObject, trunkDescription, port.Name, port.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err = s.replaceAllAttributesTags(eventObject, trunk.ID, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return port, nil
 }
 
-func (s *Service) getOrCreateTrunk(eventObject runtime.Object, clusterName, trunkName, portID string) (*trunks.Trunk, error) {
+func (s *Service) getOrCreateTrunk(eventObject runtime.Object, description, trunkName, portID string) (*trunks.Trunk, error) {
 	mc := metrics.NewMetricPrometheusContext("trunk", "list")
 	allPages, err := trunks.List(s.networkClient, trunks.ListOpts{
 		Name:   trunkName,
@@ -522,7 +536,7 @@ func (s *Service) getOrCreateTrunk(eventObject runtime.Object, clusterName, trun
 	}
 	trunkList, err := trunks.ExtractTrunks(allPages)
 	if err != nil {
-		return nil, fmt.Errorf("searching for existing trunk for server: %v", err)
+		return nil, fmt.Errorf("searching for existing trunk for port: %v", err)
 	}
 
 	if len(trunkList) != 0 {
@@ -532,7 +546,7 @@ func (s *Service) getOrCreateTrunk(eventObject runtime.Object, clusterName, trun
 	trunkCreateOpts := trunks.CreateOpts{
 		Name:        trunkName,
 		PortID:      portID,
-		Description: names.GetDescription(clusterName),
+		Description: description,
 	}
 
 	mc = metrics.NewMetricPrometheusContext("trunk", "create")

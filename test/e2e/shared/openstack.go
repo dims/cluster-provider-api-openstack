@@ -34,6 +34,7 @@ import (
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/keypairs"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/openstack/imageservice/v2/images"
+	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/trunks"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/ports"
 	"github.com/gophercloud/utils/openstack/clientconfig"
 	. "github.com/onsi/ginkgo"
@@ -147,6 +148,34 @@ func DumpOpenStackPorts(e2eCtx *E2EContext, filter ports.ListOpts) (*[]ports.Por
 		return nil, fmt.Errorf("error extracting ports: %s", err)
 	}
 	return &portsList, nil
+}
+
+func DumpOpenStackTrunks(e2eCtx *E2EContext, filter ports.ListOpts) (*[]trunks.Trunk, error) {
+	providerClient, clientOpts, err := getProviderClient(e2eCtx)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "error creating provider client: %s\n", err)
+		return nil, err
+	}
+
+	networkClient, err := openstack.NewNetworkV2(providerClient, gophercloud.EndpointOpts{
+		Region: clientOpts.RegionName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error creating network client: %s", err)
+	}
+	portID := filter.ID
+	allPages, err := trunks.List(networkClient, trunks.ListOpts{
+		PortID: portID,
+	}).AllPages()
+	if err != nil {
+		return nil, fmt.Errorf("unable to list trunks: %v", err)
+	}
+	trunkList, err := trunks.ExtractTrunks(allPages)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract trunk: %v", err)
+	}
+
+	return &trunkList, nil
 }
 
 // getOpenStackServers gets all OpenStack servers at once, to save on DescribeInstances
