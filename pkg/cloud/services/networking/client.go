@@ -18,11 +18,13 @@ package networking
 
 import (
 	"github.com/gophercloud/gophercloud"
+	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/attributestags"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/floatingips"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/routers"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/rules"
+	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/trunks"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/networks"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/ports"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/subnets"
@@ -42,6 +44,10 @@ type NetworkClient interface {
 	DeletePort(id string) error
 	GetPort(id string) (*ports.Port, error)
 	UpdatePort(id string, opts ports.UpdateOptsBuilder) (*ports.Port, error)
+
+	ListTrunk(opts trunks.ListOptsBuilder) ([]trunks.Trunk, error)
+	CreateTrunk(opts trunks.CreateOptsBuilder) (*trunks.Trunk, error)
+	DeleteTrunk(id string) error
 
 	ListRouter(opts routers.ListOpts) ([]routers.Router, error)
 	CreateRouter(opts routers.CreateOptsBuilder) (*routers.Router, error)
@@ -74,11 +80,36 @@ type NetworkClient interface {
 	GetSubnet(id string) (*subnets.Subnet, error)
 	UpdateSubnet(id string, opts subnets.UpdateOptsBuilder) (*subnets.Subnet, error)
 
+	ListExtensions() ([]extensions.Extension, error)
+
 	ReplaceAllAttributesTags(resourceType string, resourceID string, opts attributestags.ReplaceAllOptsBuilder) ([]string, error)
 }
 
 type networkClient struct {
 	serviceClient *gophercloud.ServiceClient
+}
+
+func (c networkClient) CreateTrunk(opts trunks.CreateOptsBuilder) (*trunks.Trunk, error) {
+	mc := metrics.NewMetricPrometheusContext("trunk", "create")
+	trunk, err := trunks.Create(c.serviceClient, opts).Extract()
+	if mc.ObserveRequest(err) != nil {
+		return nil, err
+	}
+	return trunk, nil
+}
+
+func (c networkClient) DeleteTrunk(id string) error {
+	mc := metrics.NewMetricPrometheusContext("trunk", "delete")
+	return mc.ObserveRequest(trunks.Delete(c.serviceClient, id).ExtractErr())
+}
+
+func (c networkClient) ListTrunk(opts trunks.ListOptsBuilder) ([]trunks.Trunk, error) {
+	mc := metrics.NewMetricPrometheusContext("trunk", "list")
+	allPages, err := trunks.List(c.serviceClient, opts).AllPages()
+	if mc.ObserveRequest(err) != nil {
+		return nil, err
+	}
+	return trunks.ExtractTrunks(allPages)
 }
 
 func (c networkClient) AddRouterInterface(id string, opts routers.AddInterfaceOptsBuilder) (*routers.InterfaceInfo, error) {
@@ -163,15 +194,26 @@ func (c networkClient) ListPort(opts ports.ListOptsBuilder) ([]ports.Port, error
 }
 
 func (c networkClient) CreatePort(opts ports.CreateOptsBuilder) (*ports.Port, error) {
-	return ports.Create(c.serviceClient, opts).Extract()
+	mc := metrics.NewMetricPrometheusContext("port", "create")
+	port, err := ports.Create(c.serviceClient, opts).Extract()
+	if mc.ObserveRequest(err) != nil {
+		return nil, err
+	}
+	return port, nil
 }
 
 func (c networkClient) DeletePort(id string) error {
-	return ports.Delete(c.serviceClient, id).ExtractErr()
+	mc := metrics.NewMetricPrometheusContext("port", "delete")
+	return mc.ObserveRequest(ports.Delete(c.serviceClient, id).ExtractErr())
 }
 
 func (c networkClient) GetPort(id string) (*ports.Port, error) {
-	return ports.Get(c.serviceClient, id).Extract()
+	mc := metrics.NewMetricPrometheusContext("port", "get")
+	port, err := ports.Get(c.serviceClient, id).Extract()
+	if mc.ObserveRequestIgnoreNotFound(err) != nil {
+		return nil, err
+	}
+	return port, nil
 }
 
 func (c networkClient) UpdatePort(id string, opts ports.UpdateOptsBuilder) (*ports.Port, error) {
@@ -321,4 +363,13 @@ func (c networkClient) GetSubnet(id string) (*subnets.Subnet, error) {
 
 func (c networkClient) UpdateSubnet(id string, opts subnets.UpdateOptsBuilder) (*subnets.Subnet, error) {
 	return subnets.Update(c.serviceClient, id, opts).Extract()
+}
+
+func (c networkClient) ListExtensions() ([]extensions.Extension, error) {
+	mc := metrics.NewMetricPrometheusContext("network_extension", "list")
+	allPages, err := extensions.List(c.serviceClient).AllPages()
+	if mc.ObserveRequest(err) != nil {
+		return nil, err
+	}
+	return extensions.ExtractExtensions(allPages)
 }

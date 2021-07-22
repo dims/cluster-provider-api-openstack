@@ -554,3 +554,44 @@ func convertOSSecGroupRuleToConfigSecGroupRule(osSecGroupRule rules.SecGroupRule
 		RemoteIPPrefix:  osSecGroupRule.RemoteIPPrefix,
 	}
 }
+
+func (s *Service) GetSecurityGroups(securityGroupParams []infrav1.SecurityGroupParam) ([]string, error) {
+	var sgIDs []string
+	for _, sg := range securityGroupParams {
+		listOpts := groups.ListOpts(sg.Filter)
+		if listOpts.ProjectID == "" {
+			listOpts.ProjectID = s.projectID
+		}
+		listOpts.Name = sg.Name
+		listOpts.ID = sg.UUID
+
+		SGList, err := s.client.ListSecGroup(listOpts)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(SGList) == 0 {
+			return nil, fmt.Errorf("security group %s not found", sg.Name)
+		}
+
+		for _, group := range SGList {
+			if isDuplicate(sgIDs, group.ID) {
+				continue
+			}
+			sgIDs = append(sgIDs, group.ID)
+		}
+	}
+	return sgIDs, nil
+}
+
+func isDuplicate(list []string, name string) bool {
+	if len(list) == 0 {
+		return false
+	}
+	for _, element := range list {
+		if element == name {
+			return true
+		}
+	}
+	return false
+}

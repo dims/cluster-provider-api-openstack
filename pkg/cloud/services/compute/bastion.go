@@ -33,7 +33,7 @@ func (s *Service) CreateBastion(openStackCluster *infrav1.OpenStackCluster, clus
 		RootVolume:    openStackCluster.Spec.Bastion.Instance.RootVolume,
 	}
 
-	securityGroups, err := s.getSecurityGroups(openStackCluster.Spec.Bastion.Instance.SecurityGroups)
+	securityGroups, err := s.networkingService.GetSecurityGroups(openStackCluster.Spec.Bastion.Instance.SecurityGroups)
 	if err != nil {
 		return nil, err
 	}
