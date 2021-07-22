@@ -136,6 +136,10 @@ type PortOpts struct {
 
 	// The virtual network interface card (vNIC) type that is bound to the neutron port.
 	VNICType string `json:"vnicType,omitempty"`
+
+	// DisablePortSecurity enables or disables the port security when set.
+	// When not set, it takes the value of the corresponding field at the network level.
+	DisablePortSecurity *bool `json:"disablePortSecurity,omitempty"`
 }
 
 type FixedIP struct {

@@ -28,6 +28,7 @@ func Test_getPortName(t *testing.T) {
 		opts         *infrav1.PortOpts
 		netIndex     int
 	}
+	truePtr := true
 	tests := []struct {
 		name string
 		args args
@@ -47,6 +48,11 @@ func Test_getPortName(t *testing.T) {
 			name: "without PortOpts name suffix",
 			args: args{"test-1-instance", &infrav1.PortOpts{}, 4},
 			want: "test-1-instance-4",
+		},
+		{
+			name: "with PortOpts name suffix",
+			args: args{"test-1-instance", &infrav1.PortOpts{NameSuffix: "foo2", NetworkID: "bar", DisablePortSecurity: &truePtr}, 4},
+			want: "test-1-instance-foo2",
 		},
 	}
 	for _, tt := range tests {

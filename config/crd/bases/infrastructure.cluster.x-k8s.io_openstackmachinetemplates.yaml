@@ -510,6 +510,12 @@ spec:
                               type: array
                             description:
                               type: string
+                            disablePortSecurity:
+                              description: DisablePortSecurity enables or disables
+                                the port security when set. When not set, it takes
+                                the value of the corresponding field at the network
+                                level.
+                              type: boolean
                             fixedIPs:
                               description: Specify pairs of subnet and/or IP address.
                                 These should be subnets of the network with the given
